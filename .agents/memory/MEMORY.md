@@ -1,0 +1,1 @@
+- [Visit record storage](visit-record-storage.md) — Outlet visit drafts and saved records are device-local; do not imply they sync across devices.

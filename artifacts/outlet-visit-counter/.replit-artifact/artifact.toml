@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Outlet Visit Counter"
+description = "A mobile-friendly outlet visit form for recording dealer details and counting appliance displays by brand and category, based on the user's Excel form."
+version = "1.0.0"
+id = "artifacts/outlet-visit-counter"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25900
+
+[services.development]
+run = "pnpm --filter @workspace/outlet-visit-counter run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/outlet-visit-counter", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/outlet-visit-counter/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25900"
+BASE_PATH = "/"
