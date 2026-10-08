@@ -7,6 +7,7 @@ const BRANDS = [
   'TOSHIBA', 'LG', 'PANASONIC', 'SAMSUNG', 'HAIER', 'MIDEA', 'HISENSE',
   'SHARP', 'HITACHI', 'TCL', 'KHIND', 'FABER', 'ELBA', 'PENSONIC',
   'SKYWORTH', 'ELECTROLUX', 'CHIQ', 'BEKO', 'MORGAN', 'ISONIC', 'ECOZY', 'HITEC',
+  'AIWA', 'TEKA', 'BOSCH', 'SPEEDQUEEN', 'CORNELL',
 ];
 const CATEGORIES = ['SD', '2D', 'MD', 'SBS', 'CF', 'FFC', 'FLW', 'FLD', 'FLWD', 'TLW', 'TT'];
 const CATEGORY_TITLES: Record<string, string> = {
@@ -253,7 +254,7 @@ function App() {
                 </div>
                 <div className="totals">
                   <div className="total-block"><div className="total-num">{totalUnits}</div><div className="total-caption">Units counted</div></div>
-                  <div className="total-block"><div className="total-num">{populatedBrands}<span style={{ fontSize: 12, color: '#829087' }}> / 22</span></div><div className="total-caption">Brands seen</div></div>
+                  <div className="total-block"><div className="total-num">{populatedBrands}<span style={{ fontSize: 12, color: '#829087' }}> / {BRANDS.length}</span></div><div className="total-caption">Brands seen</div></div>
                 </div>
                 <div className="search-wrap">
                   <Search size={14} />
