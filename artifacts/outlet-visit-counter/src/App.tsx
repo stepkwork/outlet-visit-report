@@ -24,15 +24,30 @@ type VisitFields = {
   outletCount: string;
   outletVisitAddress: string;
 };
-type Visit = VisitFields & { id: string; savedAt: string; counts: Record<string, Record<string, number>> };
+type Visit = VisitFields & {
+  id: string;
+  savedAt: string;
+  counts: Record<string, Record<string, number>>;
+  topBrands?: string[];
+};
 const today = () => {
   const date = new Date();
   const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return localDate.toISOString().slice(0, 10);
 };
 const blankCounts = () => Object.fromEntries(BRANDS.map((brand) => [brand, Object.fromEntries(CATEGORIES.map((category) => [category, 0]))]));
+const blankTopBrands = () => ['', '', ''];
 const blankFields = (): VisitFields => ({ managerName: '', shopName: '', visitDate: today(), outletCount: '', outletVisitAddress: '' });
-const blankDraft = () => ({ fields: blankFields(), counts: blankCounts() });
+const blankDraft = () => ({ fields: blankFields(), counts: blankCounts(), topBrands: blankTopBrands() });
+function normalizeTopBrands(value: unknown): string[] {
+  const seen = new Set<string>();
+  return Array.from({ length: 3 }, (_, index) => {
+    const candidate = Array.isArray(value) ? value[index] : '';
+    if (typeof candidate !== 'string' || !BRANDS.includes(candidate) || seen.has(candidate)) return '';
+    seen.add(candidate);
+    return candidate;
+  });
+}
 function readStored<T>(key: string, fallback: T): T {
   try {
     const value = localStorage.getItem(key);
@@ -57,6 +72,8 @@ function App() {
     });
     return defaults;
   });
+  const [topBrands, setTopBrands] = useState<string[]>(() => normalizeTopBrands(initialDraft.topBrands));
+  const [expandedBrands, setExpandedBrands] = useState<string[]>([]);
   const [savedVisits, setSavedVisits] = useState<Visit[]>(() => readStored(SAVED_KEY, []));
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -67,12 +84,12 @@ function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ fields, counts }));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ fields, counts, topBrands }));
       setLastSavedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
     } catch {
       setToast('Could not save draft on this device');
     }
-  }, [fields, counts]);
+  }, [fields, counts, topBrands]);
   useEffect(() => {
     try { localStorage.setItem(SAVED_KEY, JSON.stringify(savedVisits)); }
     catch { showToast('Storage is full. Export or remove a saved visit.'); }
@@ -95,12 +112,21 @@ function App() {
       [brand]: { ...current[brand], [category]: Math.max(0, (current[brand]?.[category] || 0) + amount) },
     }));
   }
+  function changeTopBrand(rank: number, brand: string) {
+    setTopBrands((current) => current.map((selected, index) => index === rank ? brand : selected));
+  }
+  function toggleBrand(brand: string) {
+    setExpandedBrands((current) => current.includes(brand)
+      ? current.filter((item) => item !== brand)
+      : [...current, brand]);
+  }
   function saveVisit() {
     const record: Visit = {
       ...fields,
       id: selectedId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       savedAt: new Date().toISOString(),
       counts: JSON.parse(JSON.stringify(counts)),
+      topBrands: [...topBrands],
     };
     setSavedVisits((current) => selectedId
       ? current.map((visit) => visit.id === selectedId ? record : visit)
@@ -117,6 +143,8 @@ function App() {
       });
     });
     setCounts(next);
+    setTopBrands(normalizeTopBrands(visit.topBrands));
+    setExpandedBrands([]);
     setSelectedId(visit.id);
     showToast(`Opened ${visit.shopName || 'saved visit'}`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -124,6 +152,8 @@ function App() {
   function startNewVisit() {
     setFields(blankFields());
     setCounts(blankCounts());
+    setTopBrands(blankTopBrands());
+    setExpandedBrands([]);
     setSelectedId(null);
     showToast('New visit started');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -259,6 +289,76 @@ function App() {
                   </tbody>
                 </table>
               </div>
+              <div className="brand-card-list" aria-label="Display counts by brand">
+                {visibleBrands.map((brand) => {
+                  const isExpanded = expandedBrands.includes(brand);
+                  const brandTotal = CATEGORIES.reduce((sum, category) => sum + (counts[brand]?.[category] ?? 0), 0);
+                  const brandId = `brand-counts-${BRANDS.indexOf(brand)}`;
+                  return <article className={`brand-card${isExpanded ? ' expanded' : ''}`} key={brand}>
+                    <button
+                      className="brand-card-toggle"
+                      type="button"
+                      aria-expanded={isExpanded}
+                      aria-controls={isExpanded ? brandId : undefined}
+                      onClick={() => toggleBrand(brand)}
+                    >
+                      <span className="brand-cell">
+                        <span className="brand-index">{String(BRANDS.indexOf(brand) + 1).padStart(2, '0')}</span>
+                        <span className="brand-label">{brand}</span>
+                      </span>
+                      <span className="brand-card-summary">{brandTotal ? `${brandTotal} ${brandTotal === 1 ? 'unit' : 'units'}` : 'Tap to count'}</span>
+                      <ChevronDown className="brand-card-chevron" size={17} />
+                    </button>
+                    {isExpanded && <div className="mobile-count-grid" id={brandId}>
+                      {CATEGORIES.map((category) => {
+                        const value = counts[brand]?.[category] ?? 0;
+                        return <div className="mobile-count-cell" key={category}>
+                          <div className="mobile-count-name"><strong>{category}</strong><span>{CATEGORY_TITLES[category]}</span></div>
+                          <div className="count-control">
+                            <button type="button" aria-label={`Decrease ${brand} ${category}${value === 0 ? ' (zero)' : ''}`} disabled={value === 0} onClick={() => changeCount(brand, category, -1)}><Minus size={16} /></button>
+                            <span className="count-value" aria-live="polite">{value}</span>
+                            <button type="button" aria-label={`Increase ${brand} ${category}`} onClick={() => changeCount(brand, category, 1)}><Plus size={16} /></button>
+                          </div>
+                        </div>;
+                      })}
+                    </div>}
+                  </article>;
+                })}
+                {visibleBrands.length === 0 && <div className="brand-card-empty">No brand matches “{query}”.</div>}
+              </div>
+            </section>
+            <section className="panel top-brands-panel" aria-labelledby="top-brands-heading">
+              <div className="section-head">
+                <div className="section-title"><span className="section-number">03</span><h2 id="top-brands-heading">Top 3 brands in this outlet</h2></div>
+                <span className="section-note">Choose each brand once</span>
+              </div>
+              <div className="top-brand-grid">
+                {topBrands.map((brand, rank) => (
+                  <div className="top-brand-slot" key={rank}>
+                    <span className="top-brand-rank">{String(rank + 1).padStart(2, '0')}</span>
+                    <div className="field">
+                      <label htmlFor={`top-brand-${rank + 1}`}>Rank {rank + 1}</label>
+                      <select
+                        id={`top-brand-${rank + 1}`}
+                        className="top-brand-select"
+                        value={brand}
+                        onChange={(event) => changeTopBrand(rank, event.target.value)}
+                      >
+                        <option value="">Select a brand</option>
+                        {BRANDS.map((option) => (
+                          <option
+                            key={option}
+                            value={option}
+                            disabled={topBrands.some((selected, index) => index !== rank && selected === option)}
+                          >
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </section>
           </div>
 
@@ -268,7 +368,7 @@ function App() {
               <button type="button" className="save-button" onClick={saveVisit}><FileText size={16} />{isEditingSaved ? 'Update saved visit' : 'Save visit record'}</button>
               <div className="draft-actions">
                 <button type="button" className="secondary-button" style={{ flex: 1 }} onClick={printCurrent}><Printer size={13} /> Print sheet</button>
-                <button type="button" className="secondary-button" style={{ flex: 1 }} onClick={() => { if (selectedId) { const visit = savedVisits.find((item) => item.id === selectedId); if (visit) void exportVisit({ ...visit, ...fields, counts }); } else { const temporary: Visit = { ...fields, id: 'draft', savedAt: new Date().toISOString(), counts }; void exportVisit(temporary); } }}><ArrowDownToLine size={13} /> Export Excel</button>
+                <button type="button" className="secondary-button" style={{ flex: 1 }} onClick={() => { if (selectedId) { const visit = savedVisits.find((item) => item.id === selectedId); if (visit) void exportVisit({ ...visit, ...fields, counts, topBrands }); } else { const temporary: Visit = { ...fields, id: 'draft', savedAt: new Date().toISOString(), counts, topBrands }; void exportVisit(temporary); } }}><ArrowDownToLine size={13} /> Export Excel</button>
               </div>
               <p className="save-hint">Your working draft is saved automatically.</p>
             </section>

@@ -7,6 +7,7 @@ export type VisitWorkbookData = {
   outletCount: string;
   outletVisitAddress: string;
   counts: Record<string, Record<string, number>>;
+  topBrands?: string[];
 };
 
 type DisplayRow = {
@@ -162,6 +163,32 @@ function fillDataRow(
   return updated;
 }
 
+function fillCells(
+  rowXml: string,
+  rowNumber: number,
+  values: Partial<Record<string, string | number>>,
+) {
+  let updated = rowXml;
+  CELL_COLUMNS.forEach((column) => {
+    updated = updateCell(updated, `${column}${rowNumber}`, values[column] ?? null);
+  });
+  return updated;
+}
+
+function addMergedTitle(worksheet: string, rowNumber: number) {
+  const mergePattern = /<mergeCells\b([^>]*)>([\s\S]*?)<\/mergeCells>/;
+  const match = worksheet.match(mergePattern);
+  if (!match) throw new Error('The uploaded Excel template has no merged title cells.');
+  const nextAttributes = match[1].replace(/\bcount="(\d+)"/, (_, count: string) => {
+    return `count="${Number(count) + 1}"`;
+  });
+  const titleMerge = `<mergeCell ref="A${rowNumber}:J${rowNumber}"/>`;
+  return worksheet.replace(
+    mergePattern,
+    `<mergeCells${nextAttributes}>${match[2]}${titleMerge}</mergeCells>`,
+  );
+}
+
 function removeCalculationChain(zip: JSZip) {
   zip.remove('xl/calcChain.xml');
 
@@ -209,8 +236,9 @@ export async function buildVisitWorkbook(
   if (!sheetDataMatch) throw new Error('The uploaded Excel template has no worksheet data.');
 
   const originalRows = new Map<number, string>();
-  for (const match of sheetDataMatch[1].matchAll(/<row\b[^>]*\br="(\d+)"[^>]*>[\s\S]*?<\/row>/g)) {
-    originalRows.set(Number(match[1]), match[0]);
+  for (const match of sheetDataMatch[1].matchAll(/<row\b[^>]*\/>|<row\b[^>]*>[\s\S]*?<\/row>/g)) {
+    const rowNumber = match[0].match(/\br="(\d+)"/)?.[1];
+    if (rowNumber) originalRows.set(Number(rowNumber), match[0]);
   }
 
   const managerRow = originalRows.get(5);
@@ -224,9 +252,9 @@ export async function buildVisitWorkbook(
     ),
   );
 
-  let lastRow = LAST_TEMPLATE_ROW;
+  let tableLastRow = LAST_TEMPLATE_ROW;
   const requiredLastRow = FIRST_DATA_ROW + rowsToExport.length - 1;
-  if (requiredLastRow > LAST_TEMPLATE_ROW) lastRow = requiredLastRow;
+  if (requiredLastRow > LAST_TEMPLATE_ROW) tableLastRow = requiredLastRow;
 
   const styledTemplateRow = originalRows.get(FIRST_DATA_ROW);
   if (!styledTemplateRow) throw new Error('The uploaded Excel template has no styled data rows.');
@@ -246,13 +274,56 @@ export async function buildVisitWorkbook(
     );
   }
 
-  for (let rowNumber = LAST_TEMPLATE_ROW + 1; rowNumber <= lastRow; rowNumber += 1) {
+  for (let rowNumber = LAST_TEMPLATE_ROW + 1; rowNumber <= tableLastRow; rowNumber += 1) {
     const dataIndex = rowNumber - FIRST_DATA_ROW;
     const newRow = cloneDataRow(styledTemplateRow, FIRST_DATA_ROW, rowNumber);
     originalRows.set(
       rowNumber,
       fillDataRow(newRow, rowNumber, rowsToExport[dataIndex] ?? null, visit, dataIndex + 1),
     );
+  }
+
+  const topBrands = [...new Set(
+    (visit.topBrands ?? []).filter((brand) => brands.includes(brand)),
+  )].slice(0, 3);
+  let lastRow = tableLastRow;
+  if (topBrands.length > 0) {
+    const headingRowNumber = tableLastRow + 2;
+    const headerRowNumber = headingRowNumber + 1;
+    const firstBrandRow = headerRowNumber + 1;
+    const titleTemplate = originalRows.get(7);
+    const headerTemplate = originalRows.get(9);
+    if (!titleTemplate || !headerTemplate) {
+      throw new Error('The uploaded Excel template is missing title or header styles.');
+    }
+    originalRows.set(
+      headingRowNumber,
+      fillCells(
+        cloneDataRow(titleTemplate, 7, headingRowNumber),
+        headingRowNumber,
+        { A: 'Top 3 brands in this outlet' },
+      ),
+    );
+    originalRows.set(
+      headerRowNumber,
+      fillCells(
+        cloneDataRow(headerTemplate, 9, headerRowNumber),
+        headerRowNumber,
+        { A: 'Rank', B: 'Brand' },
+      ),
+    );
+    topBrands.forEach((brand, index) => {
+      const rowNumber = firstBrandRow + index;
+      originalRows.set(
+        rowNumber,
+        fillCells(
+          cloneDataRow(styledTemplateRow, FIRST_DATA_ROW, rowNumber),
+          rowNumber,
+          { A: index + 1, C: brand },
+        ),
+      );
+    });
+    lastRow = firstBrandRow + topBrands.length - 1;
   }
 
   const newSheetData = [...originalRows.entries()]
@@ -267,8 +338,11 @@ export async function buildVisitWorkbook(
     /(<dimension\b[^>]*\bref=")[^"]+(")/,
     `$1A1:W${lastRow}$2`,
   );
-  if (lastRow > LAST_TEMPLATE_ROW) {
-    worksheet = worksheet.replaceAll('sqref="J10:J64"', `sqref="J10:J${lastRow}"`);
+  if (tableLastRow > LAST_TEMPLATE_ROW) {
+    worksheet = worksheet.replaceAll('sqref="J10:J64"', `sqref="J10:J${tableLastRow}"`);
+  }
+  if (topBrands.length > 0) {
+    worksheet = addMergedTitle(worksheet, tableLastRow + 2);
   }
 
   zip.file('xl/worksheets/sheet1.xml', worksheet);
