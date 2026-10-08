@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowDownToLine, Check, ChevronDown, ClipboardList, FileText, MapPin, Minus, Plus, Printer, Search, Trash2 } from 'lucide-react';
+import templateUrl from './assets/Outlet_Visit_Feedback_Template.xlsx?url';
+import { buildVisitWorkbook } from './lib/visit-workbook';
 
 const BRANDS = [
   'TOSHIBA', 'LG', 'PANASONIC', 'SAMSUNG', 'HAIER', 'MIDEA', 'HISENSE',
@@ -38,10 +40,6 @@ function readStored<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
-}
-function csvCell(value: unknown) {
-  const text = String(value ?? '');
-  return `"${text.replaceAll('"', '""')}"`;
 }
 function safeFilePart(value: string) {
   return (value || 'outlet-visit').trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
@@ -130,27 +128,29 @@ function App() {
     showToast('New visit started');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
-  function exportVisit(visit: Visit) {
-    const lines = [
-      ['Manager name', visit.managerName],
-      ['Shop name', visit.shopName],
-      ['Visit date', visit.visitDate],
-      ['Outlet count', visit.outletCount],
-      ['Outlet visit address', visit.outletVisitAddress],
-      [],
-      ['Brand', ...CATEGORIES],
-      ...BRANDS.map((brand) => [brand, ...CATEGORIES.map((category) => visit.counts?.[brand]?.[category] ?? 0)]),
-    ];
-    const content = '\uFEFF' + lines.map((line) => line.map(csvCell).join(',')).join('\r\n');
-    const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${safeFilePart(visit.shopName)}-${visit.visitDate || 'visit'}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    showToast('CSV export downloaded');
+  async function exportVisit(visit: Visit) {
+    try {
+      const templateResponse = await fetch(templateUrl);
+      if (!templateResponse.ok) throw new Error('The Excel template could not be loaded.');
+      const templateBytes = await templateResponse.arrayBuffer();
+      const workbookBytes = await buildVisitWorkbook(templateBytes, visit, BRANDS, CATEGORIES);
+      const workbookBuffer = new ArrayBuffer(workbookBytes.byteLength);
+      new Uint8Array(workbookBuffer).set(workbookBytes);
+      const blob = new Blob([workbookBuffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${safeFilePart(visit.shopName)}-${visit.visitDate || 'visit'}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showToast('Excel workbook downloaded');
+    } catch {
+      showToast('Could not create the Excel workbook. Please try again.');
+    }
   }
   function printCurrent() {
     window.print();
@@ -268,7 +268,7 @@ function App() {
               <button type="button" className="save-button" onClick={saveVisit}><FileText size={16} />{isEditingSaved ? 'Update saved visit' : 'Save visit record'}</button>
               <div className="draft-actions">
                 <button type="button" className="secondary-button" style={{ flex: 1 }} onClick={printCurrent}><Printer size={13} /> Print sheet</button>
-                <button type="button" className="secondary-button" style={{ flex: 1 }} onClick={() => { if (selectedId) { const visit = savedVisits.find((item) => item.id === selectedId); if (visit) exportVisit({ ...visit, ...fields, counts }); } else { const temporary: Visit = { ...fields, id: 'draft', savedAt: new Date().toISOString(), counts }; exportVisit(temporary); } }}><ArrowDownToLine size={13} /> Export CSV</button>
+                <button type="button" className="secondary-button" style={{ flex: 1 }} onClick={() => { if (selectedId) { const visit = savedVisits.find((item) => item.id === selectedId); if (visit) void exportVisit({ ...visit, ...fields, counts }); } else { const temporary: Visit = { ...fields, id: 'draft', savedAt: new Date().toISOString(), counts }; void exportVisit(temporary); } }}><ArrowDownToLine size={13} /> Export Excel</button>
               </div>
               <p className="save-hint">Your working draft is saved automatically.</p>
             </section>
@@ -287,7 +287,7 @@ function App() {
                         <div className="visit-meta">{visit.visitDate || 'No date'} · {visit.managerName || 'No manager'}</div>
                       </div>
                       <div className="visit-actions">
-                        <button type="button" className="icon-button" title="Export this visit as CSV" aria-label={`Export ${visit.shopName || 'visit'} as CSV`} onClick={() => exportVisit(visit)}><ArrowDownToLine size={14} /></button>
+                        <button type="button" className="icon-button" title="Export this visit as an Excel workbook" aria-label={`Export ${visit.shopName || 'visit'} as Excel workbook`} onClick={() => void exportVisit(visit)}><ArrowDownToLine size={14} /></button>
                         <button type="button" className="icon-button danger" title="Delete saved visit" aria-label={`Delete ${visit.shopName || 'visit'}`} onClick={() => setDeleteTarget(visit.id)}><Trash2 size={14} /></button>
                       </div>
                     </div>

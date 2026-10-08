@@ -1,1 +1,2 @@
 - [Visit record storage](visit-record-storage.md) — Outlet visit drafts and saved records are device-local; do not imply they sync across devices.
+- [Excel visit form](excel-template-export.md) — The uploaded Outlet Visit Feedback workbook is the user's standard form and export format.
