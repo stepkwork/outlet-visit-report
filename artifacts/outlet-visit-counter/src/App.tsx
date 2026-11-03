@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { ArrowDownToLine, Check, ChevronDown, ClipboardList, FileText, MapPin, Minus, Plus, Printer, Search, Trash2 } from 'lucide-react';
 import templateUrl from './assets/Outlet_Visit_Feedback_Template.xlsx?url';
 import { buildVisitWorkbook } from './lib/visit-workbook';
@@ -17,6 +17,7 @@ const CATEGORY_TITLES: Record<string, string> = {
 };
 const SAVED_KEY = 'outlet-visit-counter:saved-v1';
 const DRAFT_KEY = 'outlet-visit-counter:draft-v1';
+const CUSTOM_BRANDS_KEY = 'outlet-visit-counter:custom-brands-v1';
 
 type VisitFields = {
   managerName: string;
@@ -36,15 +37,29 @@ const today = () => {
   const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return localDate.toISOString().slice(0, 10);
 };
-const blankCounts = () => Object.fromEntries(BRANDS.map((brand) => [brand, Object.fromEntries(CATEGORIES.map((category) => [category, 0]))]));
+const blankCounts = (brands: string[] = BRANDS) => Object.fromEntries(brands.map((brand) => [brand, Object.fromEntries(CATEGORIES.map((category) => [category, 0]))]));
 const blankTopBrands = () => ['', '', ''];
 const blankFields = (): VisitFields => ({ managerName: '', shopName: '', visitDate: today(), outletCount: '', outletVisitAddress: '' });
 const blankDraft = () => ({ fields: blankFields(), counts: blankCounts(), topBrands: blankTopBrands() });
-function normalizeTopBrands(value: unknown): string[] {
+function normalizeCustomBrands(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set(BRANDS.map((brand) => brand.toLowerCase()));
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue;
+    const brand = entry.trim().replace(/\s+/g, ' ').toUpperCase();
+    const key = brand.toLowerCase();
+    if (!brand || brand.length > 50 || seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(brand);
+  }
+  return normalized;
+}
+function normalizeTopBrands(value: unknown, brands: string[] = BRANDS): string[] {
   const seen = new Set<string>();
   return Array.from({ length: 3 }, (_, index) => {
     const candidate = Array.isArray(value) ? value[index] : '';
-    if (typeof candidate !== 'string' || !BRANDS.includes(candidate) || seen.has(candidate)) return '';
+    if (typeof candidate !== 'string' || !brands.includes(candidate) || seen.has(candidate)) return '';
     seen.add(candidate);
     return candidate;
   });
@@ -62,10 +77,15 @@ function safeFilePart(value: string) {
 }
 
 function App() {
+  const [customBrands, setCustomBrands] = useState<string[]>(() =>
+    normalizeCustomBrands(readStored(CUSTOM_BRANDS_KEY, [])),
+  );
+  const allBrands = useMemo(() => [...BRANDS, ...customBrands], [customBrands]);
   const initialDraft = useMemo(() => readStored(DRAFT_KEY, blankDraft()), []);
   const [fields, setFields] = useState<VisitFields>(() => ({ ...blankFields(), ...initialDraft.fields }));
+  const [brandInput, setBrandInput] = useState('');
   const [counts, setCounts] = useState<Record<string, Record<string, number>>>(() => {
-    const defaults = blankCounts();
+    const defaults = blankCounts(allBrands);
     Object.entries(initialDraft.counts || {}).forEach(([brand, row]) => {
       if (defaults[brand]) Object.entries(row).forEach(([category, value]) => {
         if (CATEGORIES.includes(category)) defaults[brand][category] = Math.max(0, Number(value) || 0);
@@ -73,7 +93,7 @@ function App() {
     });
     return defaults;
   });
-  const [topBrands, setTopBrands] = useState<string[]>(() => normalizeTopBrands(initialDraft.topBrands));
+  const [topBrands, setTopBrands] = useState<string[]>(() => normalizeTopBrands(initialDraft.topBrands, allBrands));
   const [expandedBrands, setExpandedBrands] = useState<string[]>([]);
   const [savedVisits, setSavedVisits] = useState<Visit[]>(() => readStored(SAVED_KEY, []));
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -107,6 +127,33 @@ function App() {
   function updateField<K extends keyof VisitFields>(key: K, value: VisitFields[K]) {
     setFields((current) => ({ ...current, [key]: value }));
   }
+  function addBrand(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const brand = brandInput.trim().replace(/\s+/g, ' ').toUpperCase();
+    if (!brand) {
+      showToast('Enter a brand name first');
+      return;
+    }
+    if (allBrands.some((item) => item.toLowerCase() === brand.toLowerCase())) {
+      showToast(`${brand} is already in the list`);
+      return;
+    }
+    const nextBrands = [...customBrands, brand];
+    try {
+      localStorage.setItem(CUSTOM_BRANDS_KEY, JSON.stringify(nextBrands));
+    } catch {
+      showToast('Could not save this brand on this device');
+      return;
+    }
+    setCustomBrands(nextBrands);
+    setCounts((current) => ({
+      ...current,
+      [brand]: current[brand] ?? Object.fromEntries(CATEGORIES.map((category) => [category, 0])),
+    }));
+    setBrandInput('');
+    setQuery('');
+    showToast(`${brand} added and saved on this device`);
+  }
   function changeCount(brand: string, category: string, amount: number) {
     setCounts((current) => ({
       ...current,
@@ -137,14 +184,14 @@ function App() {
   }
   function loadVisit(visit: Visit) {
     setFields({ managerName: visit.managerName, shopName: visit.shopName, visitDate: visit.visitDate, outletCount: visit.outletCount, outletVisitAddress: visit.outletVisitAddress });
-    const next = blankCounts();
+    const next = blankCounts(allBrands);
     Object.entries(visit.counts || {}).forEach(([brand, row]) => {
       if (next[brand]) Object.entries(row).forEach(([category, value]) => {
         if (CATEGORIES.includes(category)) next[brand][category] = Math.max(0, Number(value) || 0);
       });
     });
     setCounts(next);
-    setTopBrands(normalizeTopBrands(visit.topBrands));
+    setTopBrands(normalizeTopBrands(visit.topBrands, allBrands));
     setExpandedBrands([]);
     setSelectedId(visit.id);
     showToast(`Opened ${visit.shopName || 'saved visit'}`);
@@ -152,7 +199,7 @@ function App() {
   }
   function startNewVisit() {
     setFields(blankFields());
-    setCounts(blankCounts());
+    setCounts(blankCounts(allBrands));
     setTopBrands(blankTopBrands());
     setExpandedBrands([]);
     setSelectedId(null);
@@ -164,7 +211,7 @@ function App() {
       const templateResponse = await fetch(templateUrl);
       if (!templateResponse.ok) throw new Error('The Excel template could not be loaded.');
       const templateBytes = await templateResponse.arrayBuffer();
-      const workbookBytes = await buildVisitWorkbook(templateBytes, visit, BRANDS, CATEGORIES);
+      const workbookBytes = await buildVisitWorkbook(templateBytes, visit, allBrands, CATEGORIES);
       const workbookBuffer = new ArrayBuffer(workbookBytes.byteLength);
       new Uint8Array(workbookBuffer).set(workbookBytes);
       const blob = new Blob([workbookBuffer], {
@@ -186,9 +233,9 @@ function App() {
   function printCurrent() {
     window.print();
   }
-  const visibleBrands = BRANDS.filter((brand) => brand.toLowerCase().includes(query.trim().toLowerCase()));
+  const visibleBrands = allBrands.filter((brand) => brand.toLowerCase().includes(query.trim().toLowerCase()));
   const totalUnits = useMemo(() => Object.values(counts).reduce((sum, row) => sum + Object.values(row).reduce((subtotal, count) => subtotal + count, 0), 0), [counts]);
-  const populatedBrands = useMemo(() => Object.values(counts).filter((row) => Object.values(row).some((count) => count > 0)).length, [counts]);
+  const populatedBrands = useMemo(() => allBrands.filter((brand) => Object.values(counts[brand] ?? {}).some((count) => count > 0)).length, [allBrands, counts]);
   const isEditingSaved = Boolean(selectedId);
 
   return (
@@ -254,13 +301,31 @@ function App() {
                 </div>
                 <div className="totals">
                   <div className="total-block"><div className="total-num">{totalUnits}</div><div className="total-caption">Units counted</div></div>
-                  <div className="total-block"><div className="total-num">{populatedBrands}<span style={{ fontSize: 12, color: '#829087' }}> / {BRANDS.length}</span></div><div className="total-caption">Brands seen</div></div>
+                  <div className="total-block"><div className="total-num">{populatedBrands}<span style={{ fontSize: 12, color: '#829087' }}> / {allBrands.length}</span></div><div className="total-caption">Brands seen</div></div>
                 </div>
                 <div className="search-wrap">
                   <Search size={14} />
                   <input className="search-input" type="search" aria-label="Find a brand" placeholder="Find a brand" value={query} onChange={(event) => setQuery(event.target.value)} />
                 </div>
               </div>
+              <form className="add-brand-row" onSubmit={addBrand}>
+                <div className="add-brand-heading">
+                  <label htmlFor="newBrand">Add a brand</label>
+                  <span>Saved on this device</span>
+                </div>
+                <div className="add-brand-controls">
+                  <input
+                    id="newBrand"
+                    type="text"
+                    maxLength={50}
+                    autoComplete="off"
+                    value={brandInput}
+                    onChange={(event) => setBrandInput(event.target.value)}
+                    placeholder="Enter a brand name"
+                  />
+                  <button type="submit"><Plus size={15} /> Add brand</button>
+                </div>
+              </form>
               <div className="print-only print-meta">
                 <strong>{fields.shopName || 'Outlet visit'}</strong> · {fields.visitDate} · Manager: {fields.managerName || '—'} · Address: {fields.outletVisitAddress || '—'} · Outlet count: {fields.outletCount || '—'}
               </div>
@@ -273,7 +338,7 @@ function App() {
                   <tbody>
                     {visibleBrands.map((brand) => (
                       <tr key={brand}>
-                        <td><div className="brand-cell"><span className="brand-index">{String(BRANDS.indexOf(brand) + 1).padStart(2, '0')}</span><span className="brand-label">{brand}</span></div></td>
+                        <td><div className="brand-cell"><span className="brand-index">{String(allBrands.indexOf(brand) + 1).padStart(2, '0')}</span><span className="brand-label">{brand}</span></div></td>
                         {CATEGORIES.map((category) => {
                           const value = counts[brand]?.[category] ?? 0;
                           return <td key={category}>
@@ -294,7 +359,7 @@ function App() {
                 {visibleBrands.map((brand) => {
                   const isExpanded = expandedBrands.includes(brand);
                   const brandTotal = CATEGORIES.reduce((sum, category) => sum + (counts[brand]?.[category] ?? 0), 0);
-                  const brandId = `brand-counts-${BRANDS.indexOf(brand)}`;
+                  const brandId = `brand-counts-${allBrands.indexOf(brand)}`;
                   return <article className={`brand-card${isExpanded ? ' expanded' : ''}`} key={brand}>
                     <button
                       className="brand-card-toggle"
@@ -304,7 +369,7 @@ function App() {
                       onClick={() => toggleBrand(brand)}
                     >
                       <span className="brand-cell">
-                        <span className="brand-index">{String(BRANDS.indexOf(brand) + 1).padStart(2, '0')}</span>
+                        <span className="brand-index">{String(allBrands.indexOf(brand) + 1).padStart(2, '0')}</span>
                         <span className="brand-label">{brand}</span>
                       </span>
                       <span className="brand-card-summary">{brandTotal ? `${brandTotal} ${brandTotal === 1 ? 'unit' : 'units'}` : 'Tap to count'}</span>
@@ -346,7 +411,7 @@ function App() {
                         onChange={(event) => changeTopBrand(rank, event.target.value)}
                       >
                         <option value="">Select a brand</option>
-                        {BRANDS.map((option) => (
+                        {allBrands.map((option) => (
                           <option
                             key={option}
                             value={option}

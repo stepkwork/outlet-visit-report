@@ -103,6 +103,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .inventory-heading { padding:20px 22px 16px;display:flex;align-items:center;justify-content:space-between;gap:14px;border-bottom:1px solid #ece9e2; }
 .inventory-title h2 { margin:0;font-family:'Space Grotesk',sans-serif;font-size:18px;letter-spacing:-.03em; }
 .inventory-title p { margin:4px 0 0;font-size:11px;color:#78817c; }
+.add-brand-row { display:grid;gap:8px;padding:13px 18px;border-bottom:1px solid #ece9e2;background:#fcfbf7; }
+.add-brand-heading { display:flex;align-items:center;justify-content:space-between;gap:12px; }
+.add-brand-heading label { color:#59645f;font-size:11px;font-weight:700; }
+.add-brand-heading span { color:#89918b;font-size:10px; }
+.add-brand-controls { display:flex;align-items:center;gap:8px; }
+.add-brand-controls input { flex:1;min-width:0;min-height:44px;padding:0 12px;border:1px solid #deded6;border-radius:8px;background:#fffefa;color:#273b37;font-size:13px; }
+.add-brand-controls input:focus { border-color:#43816c;box-shadow:0 0 0 3px #43816c18;outline:0; }
+.add-brand-controls button { min-height:44px;padding:0 15px;display:inline-flex;align-items:center;justify-content:center;gap:7px;border:0;border-radius:8px;background:#24624e;color:#fff;font-size:12px;font-weight:700;white-space:nowrap; }
+.add-brand-controls button:hover { background:#1b5140; }
 .totals { display:flex;align-items:center;gap:18px; }
 .total-block { text-align:right; }
 .total-num { color:#28624f;font-family:'DM Mono',monospace;font-size:22px;font-weight:500;line-height:1; }
@@ -270,7 +279,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 @media print {
  @page{size:landscape;margin:12mm}
  body{background:white!important;color:#182c28}
- .topbar,.page-heading,.visit-panel,.sidebar,.inventory-heading .search-wrap,.toast-message,.count-control button{display:none!important}
+  .topbar,.page-heading,.visit-panel,.sidebar,.inventory-heading .search-wrap,.add-brand-row,.toast-message,.count-control button{display:none!important}
  .page-wrap{max-width:none;padding:0}
  .workspace{display:block}
  .inventory-panel{border:0;box-shadow:none}
