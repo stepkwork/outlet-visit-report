@@ -10,6 +10,7 @@ const BRANDS = [
   'AIWA', 'TEKA', 'BOSCH', 'SPEEDQUEEN', 'CORNELL',
 ];
 const CATEGORIES = ['SD', '2D', 'MD', 'SBS', 'CF', 'FFC', 'FLW', 'FLD', 'FLWD', 'TLW', 'TT'];
+const DISPLAY_CATEGORIES = CATEGORIES.filter((category) => category !== 'FFC');
 const CATEGORY_TITLES: Record<string, string> = {
   SD: 'Single Door', '2D': '2 Door', MD: 'Multi Door', SBS: 'Side by Side',
   CF: 'Chest Freezer', FFC: 'FFC', FLW: 'Front Load Washer',
@@ -234,8 +235,13 @@ function App() {
     window.print();
   }
   const visibleBrands = allBrands.filter((brand) => brand.toLowerCase().includes(query.trim().toLowerCase()));
-  const totalUnits = useMemo(() => Object.values(counts).reduce((sum, row) => sum + Object.values(row).reduce((subtotal, count) => subtotal + count, 0), 0), [counts]);
-  const populatedBrands = useMemo(() => allBrands.filter((brand) => Object.values(counts[brand] ?? {}).some((count) => count > 0)).length, [allBrands, counts]);
+  const totalUnits = useMemo(() => allBrands.reduce(
+    (sum, brand) => sum + DISPLAY_CATEGORIES.reduce((subtotal, category) => subtotal + (counts[brand]?.[category] ?? 0), 0),
+    0,
+  ), [allBrands, counts]);
+  const populatedBrands = useMemo(() => allBrands.filter(
+    (brand) => DISPLAY_CATEGORIES.some((category) => (counts[brand]?.[category] ?? 0) > 0),
+  ).length, [allBrands, counts]);
   const isEditingSaved = Boolean(selectedId);
 
   return (
@@ -333,13 +339,13 @@ function App() {
                 <table className="matrix">
                   <thead><tr>
                     <th scope="col">BRAND</th>
-                    {CATEGORIES.map((category) => <th scope="col" key={category} title={CATEGORY_TITLES[category]}>{category}</th>)}
+                    {DISPLAY_CATEGORIES.map((category) => <th scope="col" key={category} title={CATEGORY_TITLES[category]}>{category}</th>)}
                   </tr></thead>
                   <tbody>
                     {visibleBrands.map((brand) => (
                       <tr key={brand}>
                         <td><div className="brand-cell"><span className="brand-index">{String(allBrands.indexOf(brand) + 1).padStart(2, '0')}</span><span className="brand-label">{brand}</span></div></td>
-                        {CATEGORIES.map((category) => {
+                        {DISPLAY_CATEGORIES.map((category) => {
                           const value = counts[brand]?.[category] ?? 0;
                           return <td key={category}>
                             <div className="count-control">
@@ -351,14 +357,14 @@ function App() {
                         })}
                       </tr>
                     ))}
-                    {visibleBrands.length === 0 && <tr><td colSpan={CATEGORIES.length + 1}><div className="matrix-empty">No brand matches “{query}”.</div></td></tr>}
+                    {visibleBrands.length === 0 && <tr><td colSpan={DISPLAY_CATEGORIES.length + 1}><div className="matrix-empty">No brand matches “{query}”.</div></td></tr>}
                   </tbody>
                 </table>
               </div>
               <div className="brand-card-list" aria-label="Display counts by brand">
                 {visibleBrands.map((brand) => {
                   const isExpanded = expandedBrands.includes(brand);
-                  const brandTotal = CATEGORIES.reduce((sum, category) => sum + (counts[brand]?.[category] ?? 0), 0);
+                  const brandTotal = DISPLAY_CATEGORIES.reduce((sum, category) => sum + (counts[brand]?.[category] ?? 0), 0);
                   const brandId = `brand-counts-${allBrands.indexOf(brand)}`;
                   return <article className={`brand-card${isExpanded ? ' expanded' : ''}`} key={brand}>
                     <button
@@ -376,7 +382,7 @@ function App() {
                       <ChevronDown className="brand-card-chevron" size={17} />
                     </button>
                     {isExpanded && <div className="mobile-count-grid" id={brandId}>
-                      {CATEGORIES.map((category) => {
+                      {DISPLAY_CATEGORIES.map((category) => {
                         const value = counts[brand]?.[category] ?? 0;
                         return <div className="mobile-count-cell" key={category}>
                           <div className="mobile-count-name"><strong>{category}</strong><span>{CATEGORY_TITLES[category]}</span></div>
