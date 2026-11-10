@@ -1,0 +1,8 @@
+{
+  "name": "outlet-visit-report",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./artifacts/outlet-visit-counter/dist/public",
+    "not_found_handling": "single-page-application"
+  }
+}
